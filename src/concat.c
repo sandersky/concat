@@ -1,10 +1,15 @@
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+// Make buffer size 8KB's
 #define BUFFER_SIZE 8192
+#define DEBUG 1
 
-void parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char **outputPath);
+void freeStringArray(char **array, int count);
+char getOutStream(char *outputPath, FILE **outStream);
+char parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char **outputPath);
 void writeFiles(char **inputPaths, int inputCount, FILE *outStream);
 
 int main(int argc, char *argv[]) {
@@ -12,20 +17,41 @@ int main(int argc, char *argv[]) {
   char **inputPaths = malloc(sizeof(char*) * argc);
   char *outputPath = NULL;
 
-  parseArgs(argc, argv, inputPaths, &inputCount, &outputPath);
+  #ifdef DEBUG
+    printf("Parse args...\n");
+  #endif
+
+  if (parseArgs(argc, argv, inputPaths, &inputCount, &outputPath) == (char)-1) {
+    freeStringArray(inputPaths, inputCount);
+
+    if (outputPath != NULL) {
+      free(outputPath);
+    }
+
+    exit(EXIT_FAILURE);
+  }
+
+  #ifdef DEBUG
+    printf("Get output stream...\n");
+  #endif
 
   FILE *outStream;
+  char result = getOutStream(outputPath, &outStream);
+
+  // We no longer need the output path so free it from memory if it was set
   if (outputPath != NULL) {
-    outStream = fopen(outputPath, "w");
-    if (outStream < 0) {
-      printf("Failed to open output file %s\n", outputPath);
-      free(outputPath);
-      exit(EXIT_FAILURE);
-    }
     free(outputPath);
-  } else {
-    outStream = stdout;
   }
+
+  // If it failed to open output file for writing to
+  if (result == (signed char)-1) {
+    freeStringArray(inputPaths, inputCount);
+    exit(EXIT_FAILURE);
+  }
+
+  #ifdef DEBUG
+    printf("Write files...\n");
+  #endif
 
   writeFiles(inputPaths, inputCount, outStream);
 
@@ -33,16 +59,45 @@ int main(int argc, char *argv[]) {
     fclose(outStream);
   }
 
-  for (int i = 0; i < inputCount; i++) {
-    free(inputPaths[i]);
-  }
-
-  free(inputPaths);
+  freeStringArray(inputPaths, inputCount);
 
   exit(EXIT_SUCCESS);
 }
 
-void parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char **outputPath) {
+void freeStringArray(char **array, int count) {
+  for (int i = 0; i < count; i++) {
+    free(array[i]);
+  }
+
+  free(array);
+}
+
+char getOutStream(char *outputPath, FILE **outStream) {
+  if (outputPath != NULL) {
+    for (int i = strlen(outputPath) - 1; i >= 0; i--) {
+      if (outputPath[i] == '/') {
+        char directoryPath[i];
+        memcpy(directoryPath, outputPath, i);
+        directoryPath[i] = '\0';
+        mkdir(directoryPath, 0700);
+        break;
+      }
+    }
+
+    *outStream = fopen(outputPath, "w");
+
+    if (outStream < 0) {
+      printf("Failed to open output file %s\n", outputPath);
+      return -1;
+    }
+  } else {
+    *outStream = stdout;
+  }
+
+  return 0;
+}
+
+char parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char **outputPath) {
   *inputCount = 0;
 
   // Iterate arguments (skip first argument since it is this program)
@@ -52,14 +107,14 @@ void parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char 
       if (argv[i][1] == 'o') {
         if (++i >= argc) {
           fprintf(stderr, "You must provide an output path when using -o command line option.\n");
-          exit(EXIT_FAILURE);
+          return -1;
         }
         int length = strlen(argv[i]);
         *outputPath = malloc(sizeof(char) * (length + 1));
         strcpy(*outputPath, argv[i]);
       } else {
         fprintf(stderr, "%s is not a valid command line option.\n", argv[i]);
-        exit(EXIT_FAILURE);
+        return -1;
       }
     } else {
       inputPaths[*inputCount] = malloc(sizeof(char) * (strlen(argv[i]) + 1));
@@ -67,6 +122,8 @@ void parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char 
       (*inputCount)++;
     }
   }
+
+  return 0;
 }
 
 void writeFiles(char **inputPaths, int inputCount, FILE *outStream) {
