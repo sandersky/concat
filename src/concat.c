@@ -3,9 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Size of buffer used when reading files
-#define BUFFER_SIZE 8192
-
 /**
  * Free an array of strings from memory
  *
@@ -34,6 +31,14 @@ char getOutStream(char *outputPath, FILE **outStream);
  * @return error -1 if error otherwise 0
  */
 char parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char **outputPath);
+
+/**
+ * Write file to output stream
+ *
+ * @param[in] inputPath
+ * @param[in] outStream
+ */
+void writeFile(char *inputPath, FILE *outStream);
 
 /**
  * Write concatenation of input files to an output file
@@ -151,21 +156,124 @@ char parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char 
   return 0;
 }
 
+void writeFile(char *inputPath, FILE *outStream) {
+  FILE *file = fopen(inputPath, "r");
+
+  if (file == NULL) {
+    fprintf(stderr, "Failed to open file at %s\n", inputPath);
+    exit(EXIT_FAILURE);
+  }
+
+  char c;
+  int currentIndex = 0;
+  char *filePath = malloc(sizeof(char) * 256);
+  int filePathIndex = 0;
+  int matchIndex = 0;
+  int quotes = 0;
+  int search = 1;
+
+  while ((c = fgetc(file)) != EOF) {
+    currentIndex++;
+
+    fprintf(outStream, "%c", c);
+
+    // If char is a new line, start new search and move to next char
+    if (c == '\n') {
+      search = 1;
+      matchIndex = 0;
+      continue;
+    }
+
+    // If we have already determined line isn't a require statement move to next char
+    if (search == 0) {
+      continue;
+    }
+
+    // If we are getting whitespace before '//=', 'require', or the file name then continue searching
+    if ((matchIndex == 0 || matchIndex == 3 || matchIndex == 10) &&
+      (c == '\t' || c == ' ')) {
+      continue;
+    }
+
+    // If character is expected character in require string move on to next char
+    if ((matchIndex == 0 && c == '/') ||
+      (matchIndex == 1 && c == '/') ||
+      (matchIndex == 2 && c == '=') ||
+      (matchIndex == 3 && c == 'r') ||
+      (matchIndex == 4 && c == 'e') ||
+      (matchIndex == 5 && c == 'q') ||
+      (matchIndex == 6 && c == 'u') ||
+      (matchIndex == 7 && c == 'i') ||
+      (matchIndex == 8 && c == 'r') ||
+      (matchIndex == 9 && c == 'e')) {
+      matchIndex++;
+      continue;
+    }
+
+    // If we did not get expected character for require string stop search and move on to next char
+    if (matchIndex >= 0 && matchIndex <= 9) {
+      search = 0;
+      continue;
+    }
+
+    // If single quotes before file path
+    if (matchIndex == 10 && c == '\'') {
+        quotes = 1;
+        filePathIndex = 0;
+        matchIndex++;
+        continue;
+    }
+
+    // If double quotes before file path
+    if (matchIndex == 10 && c == '"') {
+      quotes = 2;
+      filePathIndex = 0;
+      matchIndex++;
+      continue;
+    }
+
+    // If no quotes before expected non-whitespace char, stop search and move to next char
+    if (matchIndex == 10) {
+      search = 0;
+      continue;
+    }
+
+    // If we have recieved full file path, load contents of file
+    if (matchIndex == 11 && ((quotes == 1 && c == '\'') || (quotes == 2 && c == '"'))) {
+      search = 0;
+      filePath[filePathIndex] = '\0';
+
+      // Make sure required file starts on a new line
+      fprintf(outStream, "\n");
+
+      filePath = realloc(filePath, sizeof(char) * filePathIndex);
+
+      // Close input file handle while we read required file
+      fclose(file);
+
+      // Write required file where require statement is
+      writeFile(filePath, outStream);
+
+      // Now that we finishe reading required file reopen file handle and go to where we left off
+      file = fopen(inputPath, "r");
+      fseek(file, currentIndex, SEEK_CUR);
+
+      continue;
+    }
+
+    if (matchIndex == 11) {
+      filePath[filePathIndex++] = c;
+      continue;
+    }
+  }
+
+  free(filePath);
+
+  fclose(file);
+}
+
 void writeFiles(char **inputPaths, int inputCount, FILE *outStream) {
-  char buffer[BUFFER_SIZE];
-
   for (int i = 0; i < inputCount; i++) {
-    FILE *file = fopen(inputPaths[i], "r");
-
-    if (file < 0) {
-      fprintf(stderr, "Failed to open file at %s", inputPaths[i]);
-      exit(EXIT_FAILURE);
-    }
-
-    while (fgets(buffer, BUFFER_SIZE, file) != NULL) {
-      fprintf(outStream, "%s", buffer);
-    }
-
-    fclose(file);
+    writeFile(inputPaths[i], outStream);
   }
 }
