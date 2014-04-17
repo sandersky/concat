@@ -6,6 +6,12 @@
 #define FAILURE -1
 #define SUCCESS 0
 
+typedef struct {
+    int inputCount;
+    char **inputPaths;
+    char *outputPath;
+} CONFIG;
+
 /**
  * Free an array of strings from memory
  *
@@ -28,12 +34,10 @@ int getOutStream(char *outputPath, FILE **outStream);
  *
  * @param[in] argc argument count
  * @param[in] argv argument values
- * @param[out] inputPaths array of input file paths
- * @param[out] inputCount number of input file paths
- * @param[out] outputPath file path to write output to
+ * @param[in|out] config object that stores configuration
  * @return error -1 if error otherwise 0
  */
-int parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char **outputPath);
+int parseArgs(int argc, char *argv[], CONFIG *config);
 
 /**
  * Write file to output stream
@@ -59,42 +63,42 @@ void writeFiles(char **inputPaths, int inputCount, FILE *outStream);
  * @param[in] argv argument values
  */
 int main(int argc, char *argv[]) {
-    int inputCount;
-    char **inputPaths = malloc(sizeof(char*) * argc);
-    char *outputPath = NULL;
+    CONFIG config;
+    config.inputPaths = malloc(sizeof(char*) * argc);
+    config.outputPath = NULL;
 
-    if (parseArgs(argc, argv, inputPaths, &inputCount, &outputPath) == FAILURE) {
-        freeStringArray(inputPaths, inputCount);
+    if (parseArgs(argc, argv, &config) == FAILURE) {
+        freeStringArray(config.inputPaths, config.inputCount);
 
-        if (outputPath != NULL) {
-            free(outputPath);
+        if (config.outputPath != NULL) {
+            free(config.outputPath);
         }
 
         exit(EXIT_FAILURE);
     }
 
     FILE *outStream;
-    char result = getOutStream(outputPath, &outStream);
+    char result = getOutStream(config.outputPath, &outStream);
 
     // If output path was set then free it since it is no longer needed
-    if (outputPath != NULL) {
-        free(outputPath);
+    if (config.outputPath != NULL) {
+        free(config.outputPath);
     }
 
     // If getOutStream() failed to open output file for writing to
     if (result == FAILURE) {
-        freeStringArray(inputPaths, inputCount);
+        freeStringArray(config.inputPaths, config.inputCount);
         exit(EXIT_FAILURE);
     }
 
-    writeFiles(inputPaths, inputCount, outStream);
+    writeFiles(config.inputPaths, config.inputCount, outStream);
 
     // If output stream is a file, make sure we close our file handle
     if (outStream != stdout) {
         fclose(outStream);
     }
 
-    freeStringArray(inputPaths, inputCount);
+    freeStringArray(config.inputPaths, config.inputCount);
     exit(EXIT_SUCCESS);
 }
 
@@ -145,8 +149,8 @@ int getOutStream(char *outputPath, FILE **outStream) {
     return SUCCESS;
 }
 
-int parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char **outputPath) {
-    *inputCount = 0;
+int parseArgs(int argc, char *argv[], CONFIG *config) {
+    config->inputCount = 0;
 
     // Iterate arguments (skip first argument since it is this program)
     for (int i = 1; i < argc; i++) {
@@ -160,10 +164,10 @@ int parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char *
 
             // Allocate space for output path and set output path
             int length = strlen(argv[i]);
-            *outputPath = malloc(sizeof(char) * (length + 1));
+            config->outputPath = malloc(sizeof(char) * (length + 1));
 
             // Copy output path argument to out parameter
-            strcpy(*outputPath, argv[i]);
+            strcpy(config->outputPath, argv[i]);
 
         // If argument is unknown option
         } else if (argv[i][0] == '-') {
@@ -173,13 +177,13 @@ int parseArgs(int argc, char *argv[], char **inputPaths, int *inputCount, char *
         // If argument isn't a flag assume it is an input path
         } else {
             // Allocate space for input path
-            inputPaths[*inputCount] = malloc(sizeof(char) * (strlen(argv[i]) + 1));
+            config->inputPaths[config->inputCount] = malloc(sizeof(char) * (strlen(argv[i]) + 1));
 
             // Copy input path argument to input paths array
-            strcpy(inputPaths[*inputCount], argv[i]);
+            strcpy(config->inputPaths[config->inputCount], argv[i]);
 
             // Keep track of how many input paths are allocated
-            (*inputCount)++;
+            config->inputCount++;
         }
     }
 
